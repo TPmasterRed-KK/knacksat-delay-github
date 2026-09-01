@@ -1,0 +1,40 @@
+name: Update TLE data
+
+on:
+  schedule:
+    - cron: '0 */3 * * *'   # ทุก 3 ชั่วโมง (เวลา UTC) — GitHub อาจดีเลย์เล็กน้อยช่วงโหลดสูง
+  workflow_dispatch: {}      # ปุ่ม "Run workflow" ในแท็บ Actions เพื่อรีเฟรชทันที
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-tle
+  cancel-in-progress: false
+
+jobs:
+  update-tle:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Fetch TLE (CelesTrak primary, SatNOGS DB fallback)
+        run: node scripts/fetch-tle.mjs
+
+      - name: Commit and push if data changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/tle.json
+          if git diff --cached --quiet; then
+            echo "ไม่มีข้อมูลเปลี่ยนแปลง"
+          else
+            git commit -m "chore: update TLE data [skip ci]"
+            git push
+          fi
