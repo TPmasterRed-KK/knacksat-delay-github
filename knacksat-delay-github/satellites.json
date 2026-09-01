@@ -1,0 +1,4 @@
+[
+  { "noradId": "67683", "name": "KNACKSAT-2", "tags": ["primary", "knacksat2"] },
+  { "noradId": "43761", "name": "KNACKSAT", "tags": ["knacksat1"] }
+]

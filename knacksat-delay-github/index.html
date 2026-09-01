@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Command Delay Calculator — KMUTNB Ground Station</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+
+  <div class="hdr">
+    <div class="hdr-mark">
+      <span class="hdr-dot"></span>
+      <div>
+        <h1>Command Delay Calculator</h1>
+        <p>สถานีภาคพื้น KMUTNB · TLE อัปเดตอัตโนมัติทุก 3 ชม. ผ่าน GitHub Actions (CelesTrak / SatNOGS DB)</p>
+      </div>
+    </div>
+    <div class="hdr-tag mono">SGP4 · STATIC + ACTIONS</div>
+  </div>
+
+  <!-- LIVE TLE STRIP -->
+  <div class="tle-strip">
+    <div class="grow">
+      <label style="display:block;font-size:11.5px;color:var(--text-dim);margin-bottom:5px;">ดาวเทียมที่ติดตาม</label>
+      <select id="satSelect"></select>
+    </div>
+    <div class="tle-meta" id="tleMeta">
+      <span class="live-dot" id="liveDot"></span>กำลังโหลดข้อมูล…
+    </div>
+    <button class="btn-refresh" id="refreshBtn" type="button">↻ โหลดข้อมูลล่าสุด</button>
+  </div>
+  <div class="hint" style="margin:-12px 0 20px 2px;">
+    ข้อมูล TLE จริงถูกดึงโดย GitHub Actions ตามตารางเวลา (ทุก 3 ชม.) ปุ่มด้านบนแค่โหลดไฟล์ล่าสุดที่คอมมิตไว้แล้วมาแสดง —
+    หากต้องการบังคับให้ดึงข้อมูลใหม่ทันที ให้ไปที่แท็บ <b>Actions</b> ของ repo แล้วกด "Run workflow" บน workflow ชื่อ
+    <span class="mono">Update TLE data</span> ส่วนการเพิ่ม/ลบดาวเทียมที่ติดตาม ให้แก้ไฟล์ <span class="mono">satellites.json</span> แล้ว push
+  </div>
+
+  <!-- RESULT READOUT -->
+  <div class="readout idle" id="readout">
+    <div class="ro-main">
+      <div class="lbl">ค่า Delay ที่ต้องตั้งเข้าระบบ</div>
+      <div class="ro-big" id="roDelayHMS">— — : — — : — —</div>
+      <div class="ro-sub" id="roDelaySec">รอผลการคำนวณ</div>
+    </div>
+    <div class="ro-col">
+      <div class="lbl">ส่งคำสั่ง (Uplink) เมื่อ</div>
+      <div class="ro-val" id="roSendTime">—<small>—</small></div>
+    </div>
+    <div class="ro-col">
+      <div class="lbl">ถึงเป้าหมายจริง</div>
+      <div class="ro-val" id="roTargetTime">—<small>—</small></div>
+      <span class="ro-badge" id="roBadge" style="display:none;"></span>
+    </div>
+  </div>
+
+  <!-- STEP 1-3 -->
+  <div class="steps">
+
+    <!-- STEP 1: Uplink -->
+    <div class="panel">
+      <div class="panel-hd"><span class="step-no">01</span><h2>สถานีส่งคำสั่ง (Uplink)</h2></div>
+      <div class="field">
+        <label>เลือกสถานี</label>
+        <select id="stationPreset">
+          <option value="kmutnb">KMUTNB Ground Station — บางซื่อ, กรุงเทพฯ</option>
+          <option value="custom">กำหนดเอง (Custom)</option>
+        </select>
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label>Latitude (°)</label>
+          <input type="number" step="0.0001" id="stationLat" class="mono" value="13.8203">
+        </div>
+        <div class="field">
+          <label>Longitude (°)</label>
+          <input type="number" step="0.0001" id="stationLon" class="mono" value="100.5133">
+        </div>
+      </div>
+      <button class="pin-btn" id="pinStationBtn" type="button">📍 ปักหมุดสถานีบนแผนที่</button>
+      <div class="hint">พิกัด KMUTNB ด้านบนเป็นค่าประมาณของวิทยาเขตหลัก — แก้ไขให้ตรงกับตำแหน่งเสาอากาศจริงของสถานีภาคพื้นก่อนใช้งานจริง</div>
+      <div class="field" style="margin-top:6px;">
+        <label>มุมเงยขั้นต่ำ (°)</label>
+        <input type="number" id="minElev" class="mono" value="10" min="0" max="80">
+      </div>
+    </div>
+
+    <!-- STEP 2: Satellite / TLE (read-only, from data/tle.json) -->
+    <div class="panel">
+      <div class="panel-hd"><span class="step-no">02</span><h2>รอบวงโคจร (TLE)</h2></div>
+      <div class="field">
+        <label>ชื่อดาวเทียม</label>
+        <input type="text" id="satName" class="mono" readonly value="กำลังโหลด…">
+      </div>
+      <div class="field">
+        <label>TLE Line 1</label>
+        <textarea id="tle1" class="mono" readonly rows="2"></textarea>
+      </div>
+      <div class="field">
+        <label>TLE Line 2</label>
+        <textarea id="tle2" class="mono" readonly rows="2"></textarea>
+      </div>
+      <div class="row2" style="margin-top:10px;">
+        <div class="field">
+          <label>เริ่มค้นหาจาก (เวลาเครื่องนี้)</label>
+          <input type="datetime-local" id="searchStart" class="mono">
+        </div>
+        <div class="field">
+          <label>ค้นหาไกลสุด (วัน)</label>
+          <input type="number" id="windowDays" class="mono" value="3" min="0.5" max="14" step="0.5">
+        </div>
+      </div>
+    </div>
+
+    <!-- STEP 3: Target -->
+    <div class="panel">
+      <div class="panel-hd"><span class="step-no">03</span><h2>พิกัดเป้าหมาย (Target)</h2></div>
+      <div class="field">
+        <label>เลือกเป้าหมาย</label>
+        <select id="targetPreset">
+          <option value="paris">Paris, France</option>
+          <option value="custom">กำหนดเอง / ปักหมุดบนแผนที่</option>
+        </select>
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label>Latitude (°)</label>
+          <input type="number" step="0.0001" id="targetLat" class="mono" value="48.8566">
+        </div>
+        <div class="field">
+          <label>Longitude (°)</label>
+          <input type="number" step="0.0001" id="targetLon" class="mono" value="2.3522">
+        </div>
+      </div>
+      <button class="pin-btn" id="pinTargetBtn" type="button">📍 ปักหมุดเป้าหมายบนแผนที่</button>
+      <div class="field" style="margin-top:10px;">
+        <label>ส่งคำสั่งที่ (จุดใดของรอบผ่านสถานี)</label>
+        <select id="sendChoice">
+          <option value="aos">AOS — เริ่มเห็นดาวเทียม</option>
+          <option value="tca" selected>TCA — มุมเงยสูงสุด</option>
+          <option value="los">LOS — ก่อนดาวเทียมลับขอบฟ้า</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="compute-bar">
+    <button class="btn-compute" id="computeBtn">คำนวณ Delay</button>
+    <span class="compute-status" id="computeStatus"></span>
+  </div>
+
+  <!-- MAP + DETAILS -->
+  <div class="lower">
+    <div>
+      <div id="map"></div>
+      <div class="legend">
+        <span><span class="sw" style="background:var(--cyan);"></span>สถานีภาคพื้น</span>
+        <span><span class="sw" style="background:var(--amber);"></span>เป้าหมาย</span>
+        <span><span class="sw" style="background:#3A4A5C;"></span>เส้นทางดาวเทียม (ทั่วไป)</span>
+        <span><span class="sw" style="background:var(--green);"></span>ช่วงคำสั่งทำงาน (Uplink → Target)</span>
+      </div>
+    </div>
+    <div class="detail-panel">
+      <h3>รายละเอียดรอบผ่านสถานี</h3>
+      <div class="detail-row"><span class="k">AOS (เริ่มเห็น)</span><span class="v" id="dAOS">—</span></div>
+      <div class="detail-row"><span class="k">TCA (มุมเงยสูงสุด)</span><span class="v" id="dTCA">—</span></div>
+      <div class="detail-row"><span class="k">มุมเงยสูงสุด</span><span class="v" id="dMaxElev">—</span></div>
+      <div class="detail-row"><span class="k">LOS (ลับขอบฟ้า)</span><span class="v" id="dLOS">—</span></div>
+      <h3 style="margin-top:18px;">ระยะทางที่จุดใกล้เป้าหมายที่สุด</h3>
+      <div class="detail-row"><span class="k">ระยะจาก Ground Track</span><span class="v" id="dDist">—</span></div>
+      <div class="detail-row"><span class="k">TLE Epoch</span><span class="v" id="dEpoch">—</span></div>
+      <div class="detail-row"><span class="k">แหล่งข้อมูล TLE</span><span class="v" id="dSource">—</span></div>
+      <div class="epoch-warn" id="epochWarn"></div>
+    </div>
+  </div>
+
+  <footer>
+    เครื่องมือนี้ใช้แบบจำลอง SGP4 คำนวณตำแหน่งดาวเทียมจาก TLE (ดึงโดย GitHub Actions จาก CelesTrak / SatNOGS DB ทุก 3 ชม.) เพื่อประมาณเวลาที่ดาวเทียมโคจรผ่านใกล้พิกัดเป้าหมายมากที่สุด (จุดใต้ดาวเทียม / Nadir Ground Track)
+    ความแม่นยำขึ้นกับความสดใหม่ของ TLE และไม่ได้รวมมุมเอียงกล้อง (Off-nadir Pointing), การหมุนตัวดาวเทียม (Attitude), หรือความหน่วงของระบบภาคพื้นจริง — ใช้เป็นค่าประมาณเบื้องต้นก่อนตรวจสอบกับซอฟต์แวร์ควบคุมภารกิจจริงเสมอ
+  </footer>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/satellite.js/5.0.0/satellite.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
